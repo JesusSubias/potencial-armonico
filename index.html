@@ -12,9 +12,7 @@
     header h1 { margin:0; font-size:16px; font-weight:700; letter-spacing:.2px; }
     header p { margin:6px 0 0; color:var(--muted); font-size:13px; line-height:1.3; }
     .wrap { display:grid; grid-template-columns: 360px 1fr; gap:12px; padding:12px; }
-    @media (max-width: 900px){
-      .wrap { grid-template-columns: 1fr; }
-    }
+    @media (max-width: 900px){ .wrap { grid-template-columns: 1fr; } }
     .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
     .controls { padding:12px; }
     .grid { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
@@ -31,9 +29,7 @@
     button.primary { background:#172a52; border-color:#3a5bd6; }
     .small { font-size:12px; color:var(--muted); margin-top:10px; line-height:1.35; }
     .canvWrap { display:grid; grid-template-columns: 1fr 1fr; gap:12px; padding:12px; }
-    @media (max-width: 900px){
-      .canvWrap { grid-template-columns: 1fr; }
-    }
+    @media (max-width: 900px){ .canvWrap { grid-template-columns: 1fr; } }
     .canvasCard { padding:10px; }
     .canvasTitle { display:flex; justify-content:space-between; align-items:baseline; margin:0 0 8px; }
     .canvasTitle b { font-size:13px; }
@@ -46,7 +42,8 @@
 <body>
 <header>
   <h1>Dos masas unidas por un muelle — Vista laboratorio y vista del CDM</h1>
-  <p>Plano sin rozamiento, muelle ideal (Hooke) con longitud natural <code>L0</code>. CDM: movimiento uniforme. Relativo: oscilación. Integración: <b>Velocity-Verlet</b>.</p>
+  <p>Plano sin rozamiento, muelle ideal (Hooke) con longitud natural <code>L0</code>.
+     CDM: movimiento uniforme. Relativo: oscilación. Integración: <b>Velocity-Verlet</b>.</p>
 </header>
 
 <div class="wrap">
@@ -140,6 +137,7 @@
         • CDM: <code>R(t)=R0+V·t</code> (momento lineal conservado).<br>
         • Relativo: <code>μ r¨ = -k (|r|-L0) r̂</code>, <code>μ=m1 m2/(m1+m2)</code>.<br>
         • Posiciones: <code>r1=R-(m2/M)r</code>, <code>r2=R+(m1/M)r</code>.<br>
+        • En la vista CDM usamos <b>escala fija</b> (cámara sin zoom variable) → animación fluida.
       </div>
     </div>
 
@@ -179,7 +177,6 @@
   function dot(a,b){ return a.x*b.x + a.y*b.y; }
   function norm(a){ return Math.hypot(a.x,a.y); }
 
-  // Draw a spring between p and q (screen coords)
   function drawSpring(ctx, p, q, coils=14, amp=8){
     const dx = q.x - p.x, dy = q.y - p.y;
     const L = Math.hypot(dx,dy);
@@ -222,18 +219,6 @@
     ctx.restore();
   }
 
-  function drawTrace(ctx, pts, color){
-    if(pts.length < 2) return;
-    ctx.save();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x, pts[i].y);
-    ctx.stroke();
-    ctx.restore();
-  }
-
   function drawDisk(ctx, p, radius, fill, stroke="rgba(255,255,255,0.3)"){
     ctx.save();
     ctx.beginPath();
@@ -243,7 +228,6 @@
     ctx.strokeStyle = stroke;
     ctx.lineWidth = 1.2;
     ctx.stroke();
-    // highlight suave
     ctx.beginPath();
     ctx.arc(p.x - radius*0.25, p.y - radius*0.25, radius*0.35, 0, 2*Math.PI);
     ctx.fillStyle = "rgba(255,255,255,0.10)";
@@ -251,7 +235,7 @@
     ctx.restore();
   }
 
-  // --- Canvas setup (NO resize cada frame) ---
+  // --- Canvas setup (no resize each frame) ---
   const cLab = $("cLab");
   const cCOM = $("cCOM");
   const ctxLab = cLab.getContext("2d");
@@ -263,7 +247,7 @@
     canvas.width = Math.floor(rect.width * dpr);
     canvas.height = Math.floor(rect.height * dpr);
     const ctx = canvas.getContext("2d");
-    ctx.setTransform(dpr,0,0,dpr,0,0); // dibujar en px CSS
+    ctx.setTransform(dpr,0,0,dpr,0,0); // draw in CSS pixels
     return {w: rect.width, h: rect.height};
   }
 
@@ -295,10 +279,13 @@
   // Relative motion (r and vrel)
   let r, vrel;
 
-  // Traces
-  const traceLab = []; // CDM in lab frame
-  const traceCOM = []; // mass2 in COM frame
-  const TRACE_MAX = 800;
+  // Traces stored in WORLD coords (meters), not pixels
+  const traceR_world = [];   // COM path in lab frame, points = {x,y} in meters
+  const traceR2c_world = []; // mass2 path in COM frame, points = {x,y} in meters
+  const TRACE_MAX = 900;
+
+  // Fixed camera scale for COM view (computed once on reset)
+  let fixedScaleCOM = 1;
 
   function readInputs(){
     m1 = parseFloat($("m1").value);
@@ -326,18 +313,6 @@
     vrel = vec(vrelmag*Math.cos(vrelang), vrelmag*Math.sin(vrelang));
   }
 
-  function reset(){
-    running = false;
-    $("toggle").textContent = "▶️ Start";
-    t = 0;
-    acc = 0;          // IMPORTANTÍSIMO: limpiar acumulador
-    last = null;      // para que no haya salto al reanudar
-    readInputs();
-    traceLab.length = 0;
-    traceCOM.length = 0;
-    render();         // pinta una vez ya estable
-  }
-
   // Relative acceleration a_rel(r) = -(k/mu)(|r|-L0) r_hat
   function aRel(rr){
     const d = norm(rr);
@@ -359,17 +334,64 @@
     t += dt;
   }
 
+  // --- Animation loop (accumulator) ---
+  let last = null;
+  let acc = 0;
+
+  function reset(){
+    running = false;
+    $("toggle").textContent = "▶️ Start";
+    t = 0;
+    acc = 0;
+    last = null;
+
+    readInputs();
+
+    traceR_world.length = 0;
+    traceR2c_world.length = 0;
+
+    // Fixed scale for COM view (no zoom breathing)
+    const rLen0 = Math.max(1e-6, norm(r));
+    const spanCOM = Math.max(2.5, 2.2*rLen0); // meters of half-span-ish
+    fixedScaleCOM = Math.min(comSize.w, comSize.h) * 0.40 / spanCOM;
+
+    render();
+  }
+
+  function drawTraceWorld(ctx, ptsWorld, centerWorld, scale, w, h, color){
+    if(ptsWorld.length < 2) return;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    const p0 = worldToScreen(ptsWorld[0], centerWorld, scale, w, h);
+    ctx.moveTo(p0.x, p0.y);
+    for(let i=1;i<ptsWorld.length;i++){
+      const pi = worldToScreen(ptsWorld[i], centerWorld, scale, w, h);
+      ctx.lineTo(pi.x, pi.y);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
   function render(){
     // Compute positions
     const R = add(R0, mul(V, t)); // CDM
     const r1 = sub(R, mul(r, m2/M));
     const r2 = add(R, mul(r, m1/M));
 
-    // Choose scales
+    // Update traces in WORLD coords
+    traceR_world.push({x:R.x, y:R.y});
+    if(traceR_world.length > TRACE_MAX) traceR_world.shift();
+
+    const r2c = sub(r2, R); // COM frame position of mass2
+    traceR2c_world.push({x:r2c.x, y:r2c.y});
+    if(traceR2c_world.length > TRACE_MAX) traceR2c_world.shift();
+
+    // --- LAB view scale (can vary; it's fine here) ---
     const rLen = norm(r);
     const spanLab = Math.max(3.0, 2.2*rLen + 1.5);
     const scaleLab = Math.min(labSize.w, labSize.h) * 0.40 / spanLab;
-    const scaleCOM = Math.min(comSize.w, comSize.h) * 0.40 / Math.max(2.5, 2.2*rLen);
 
     // --- LAB ---
     ctxLab.clearRect(0,0,labSize.w, labSize.h);
@@ -378,13 +400,12 @@
     drawAxes(ctxLab, labSize.w, labSize.h);
 
     const centerLabWorld = vec(0,0);
+
+    drawTraceWorld(ctxLab, traceR_world, centerLabWorld, scaleLab, labSize.w, labSize.h, "rgba(255,255,255,0.30)");
+
     const sR  = worldToScreen(R,  centerLabWorld, scaleLab, labSize.w, labSize.h);
     const s1  = worldToScreen(r1, centerLabWorld, scaleLab, labSize.w, labSize.h);
     const s2  = worldToScreen(r2, centerLabWorld, scaleLab, labSize.w, labSize.h);
-
-    traceLab.push(sR);
-    if(traceLab.length > TRACE_MAX) traceLab.shift();
-    drawTrace(ctxLab, traceLab, "rgba(255,255,255,0.30)");
 
     ctxLab.save();
     ctxLab.strokeStyle = "rgba(220,235,255,0.55)";
@@ -398,23 +419,22 @@
     drawDisk(ctxLab, s2, rad2, "rgba(255,170,70,0.95)");
     drawDisk(ctxLab, sR, 5, "rgba(255,255,255,0.95)", "rgba(255,255,255,0.6)");
 
-    // --- COM FRAME ---
+    // --- COM frame (fixed scale!!) ---
     ctxCOM.clearRect(0,0,comSize.w, comSize.h);
     ctxCOM.fillStyle = "#070b12";
     ctxCOM.fillRect(0,0,comSize.w, comSize.h);
     drawAxes(ctxCOM, comSize.w, comSize.h);
 
-    const r1c = sub(r1, R);
-    const r2c = sub(r2, R);
-
     const centerCOMWorld = vec(0,0);
-    const s1c = worldToScreen(r1c, centerCOMWorld, scaleCOM, comSize.w, comSize.h);
-    const s2c = worldToScreen(r2c, centerCOMWorld, scaleCOM, comSize.w, comSize.h);
-    const s0c = worldToScreen(vec(0,0), centerCOMWorld, scaleCOM, comSize.w, comSize.h);
 
-    traceCOM.push(s2c);
-    if(traceCOM.length > TRACE_MAX) traceCOM.shift();
-    drawTrace(ctxCOM, traceCOM, "rgba(255,170,70,0.30)");
+    drawTraceWorld(ctxCOM, traceR2c_world, centerCOMWorld, fixedScaleCOM, comSize.w, comSize.h, "rgba(255,170,70,0.30)");
+
+    const r1c = sub(r1, R);
+    const r2c_now = sub(r2, R);
+
+    const s1c = worldToScreen(r1c, centerCOMWorld, fixedScaleCOM, comSize.w, comSize.h);
+    const s2c = worldToScreen(r2c_now, centerCOMWorld, fixedScaleCOM, comSize.w, comSize.h);
+    const s0c = worldToScreen(vec(0,0), centerCOMWorld, fixedScaleCOM, comSize.w, comSize.h);
 
     ctxCOM.save();
     ctxCOM.strokeStyle = "rgba(220,235,255,0.55)";
@@ -437,28 +457,22 @@
       `<b>CDM</b>: R = (${R.x.toFixed(2)}, ${R.y.toFixed(2)}) m, |V| = ${norm(V).toFixed(2)} m/s<br>` +
       `<b>Relativo</b>: |r| = ${d.toFixed(3)} m, |v_rel| = ${norm(vrel).toFixed(3)} m/s<br>` +
       `<b>E_rel</b> = ${(Trel+Urel).toFixed(4)} J  (T=${Trel.toFixed(4)}, U=${Urel.toFixed(4)})<br>` +
-      `<span style="color:rgba(160,180,220,0.9)">Consejo:</span> si subes <code>dt</code> mucho, la energía “respira”.`;
+      `<span style="color:rgba(160,180,220,0.9)">CDM view:</span> escala fija = ${fixedScaleCOM.toFixed(2)} px/m`;
   }
-
-  // --- Animation loop (con acumulador: suave) ---
-  let last = null;
-  let acc = 0;
 
   function loop(ts){
     if(last === null) last = ts;
-    const elapsed = (ts - last) / 1000; // s reales
+    const elapsed = (ts - last) / 1000;
     last = ts;
 
     if(running){
       acc += elapsed * speed;
 
-      // Evitar acumulación brutal si el navegador se “duerme”
-      const maxAcc = 0.25; // s
+      const maxAcc = 0.25;
       if(acc > maxAcc) acc = maxAcc;
 
       let steps = 0;
-      const maxStepsPerFrame = 700;
-
+      const maxStepsPerFrame = 900;
       while(acc >= dt && steps < maxStepsPerFrame){
         step();
         acc -= dt;
@@ -500,6 +514,10 @@
 
   window.addEventListener("resize", () => {
     initCanvases();
+    // Recalcula escala fija para CDM en el nuevo tamaño
+    const rLen0 = Math.max(1e-6, norm(r));
+    const spanCOM = Math.max(2.5, 2.2*rLen0);
+    fixedScaleCOM = Math.min(comSize.w, comSize.h) * 0.40 / spanCOM;
     render();
   });
 
