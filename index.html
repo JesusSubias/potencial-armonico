@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>2 masas + muelle (CDM y relativo) — Simulación</title>
+  <style>
+    :root { --bg:#0b0f17; --panel:#12192a; --text:#e8eefc; --muted:#9fb0d0; --line:#2a3552; }
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+           background:var(--bg); color:var(--text); }
+    header { padding:14px 16px; border-bottom:1px solid var(--line); background:linear-gradient(180deg,#0b0f17,#0a0d14); }
+    header h1 { margin:0; font-size:16px; font-weight:700; letter-spacing:.2px; }
+    header p { margin:6px 0 0; color:var(--muted); font-size:13px; line-height:1.3; }
+    .wrap { display:grid; grid-template-columns: 360px 1fr; gap:12px; padding:12px; }
+    @media (max-width: 900px){
+      .wrap { grid-template-columns: 1fr; }
+    }
+    .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+    .controls { padding:12px; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+    .row { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+    label { display:block; font-size:12px; color:var(--muted); margin:0 0 6px; }
+    input { width:100%; box-sizing:border-box; padding:10px 10px;
+            border:1px solid #253050; border-radius:10px; background:#0e1526; color:var(--text);
+            font-size:14px; outline:none; }
+    input:focus { border-color:#3b4f86; }
+    .btns { display:flex; gap:10px; margin-top:10px; flex-wrap:wrap; }
+    button { padding:10px 12px; border-radius:10px; border:1px solid #2c3b67; background:#0e1526; color:var(--text);
+             font-weight:650; cursor:pointer; }
+    button:hover { border-color:#4a63aa; }
+    button.primary { background:#172a52; border-color:#3a5bd6; }
+    .small { font-size:12px; color:var(--muted); margin-top:10px; line-height:1.35; }
+    .canvWrap { display:grid; grid-template-columns: 1fr 1fr; gap:12px; padding:12px; }
+    @media (max-width: 900px){
+      .canvWrap { grid-template-columns: 1fr; }
+    }
+    .canvasCard { padding:10px; }
+    .canvasTitle { display:flex; justify-content:space-between; align-items:baseline; margin:0 0 8px; }
+    .canvasTitle b { font-size:13px; }
+    .canvasTitle span { font-size:12px; color:var(--muted); }
+    canvas { width:100%; height:420px; background:#070b12; border:1px solid #223052; border-radius:12px; display:block; }
+    .stats { padding:0 12px 12px; color:var(--muted); font-size:12px; line-height:1.4; }
+    code { color:#cfe1ff; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Dos masas unidas por un muelle — Vista laboratorio y vista del CDM</h1>
+  <p>Plano sin rozamiento, muelle ideal (Hooke) con longitud natural <code>L0</code>. CDM: movimiento uniforme. Relativo: oscilación. Integración: <b>Velocity-Verlet</b>.</p>
+</header>
+
+<div class="wrap">
+  <section class="panel">
+    <div class="controls">
+      <div class="grid">
+        <div>
+          <label>m1 (kg)</label>
+          <input id="m1" type="number" step="0.1" value="1.0">
+        </div>
+        <div>
+          <label>m2 (kg)</label>
+          <input id="m2" type="number" step="0.1" value="1.5">
+        </div>
+
+        <div>
+          <label>k (N/m)</label>
+          <input id="k" type="number" step="0.1" value="8.0">
+        </div>
+        <div>
+          <label>L0 (m)</label>
+          <input id="L0" type="number" step="0.01" value="1.2">
+        </div>
+
+        <div>
+          <label>dt (s)</label>
+          <input id="dt" type="number" step="0.001" value="0.005">
+        </div>
+        <div>
+          <label>Velocidad simulación (×)</label>
+          <input id="speed" type="number" step="0.1" value="1.0">
+        </div>
+      </div>
+
+      <hr style="border:0;border-top:1px solid var(--line); margin:12px 0;">
+
+      <div class="row">
+        <div>
+          <label>CDM: R0x (m)</label>
+          <input id="R0x" type="number" step="0.1" value="-2.0">
+        </div>
+        <div>
+          <label>CDM: R0y (m)</label>
+          <input id="R0y" type="number" step="0.1" value="0.5">
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:10px;">
+        <div>
+          <label>CDM: |V| (m/s)</label>
+          <input id="Vmag" type="number" step="0.1" value="0.8">
+        </div>
+        <div>
+          <label>CDM: ángulo V (deg)</label>
+          <input id="Vang" type="number" step="1" value="20">
+        </div>
+      </div>
+
+      <hr style="border:0;border-top:1px solid var(--line); margin:12px 0;">
+
+      <div class="row">
+        <div>
+          <label>Relativo: |r0| (m)</label>
+          <input id="rmag" type="number" step="0.01" value="1.6">
+        </div>
+        <div>
+          <label>Relativo: ángulo r0 (deg)</label>
+          <input id="rang" type="number" step="1" value="140">
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:10px;">
+        <div>
+          <label>Relativo: |vrel0| (m/s)</label>
+          <input id="vrelmag" type="number" step="0.05" value="0.0">
+        </div>
+        <div>
+          <label>Relativo: ángulo vrel0 (deg)</label>
+          <input id="vrelang" type="number" step="1" value="50">
+        </div>
+      </div>
+
+      <div class="btns">
+        <button class="primary" id="toggle">▶️ Start</button>
+        <button id="reset">↩️ Reset</button>
+        <button id="kick">🎯 Ejemplo “bonito”</button>
+      </div>
+
+      <div class="small">
+        <b>Notas rápidas:</b><br>
+        • CDM: <code>R(t)=R0+V·t</code> (momento lineal conservado).<br>
+        • Relativo: <code>μ r¨ = -k (|r|-L0) r̂</code>, <code>μ=m1 m2/(m1+m2)</code>.<br>
+        • Posiciones: <code>r1=R-(m2/M)r</code>, <code>r2=R+(m1/M)r</code>.<br>
+      </div>
+    </div>
+
+    <div class="stats" id="stats"></div>
+  </section>
+
+  <section class="panel">
+    <div class="canvWrap">
+      <div class="canvasCard">
+        <div class="canvasTitle">
+          <b>Laboratorio</b>
+          <span>m1 (azul), m2 (naranja), CDM (blanco)</span>
+        </div>
+        <canvas id="cLab"></canvas>
+      </div>
+      <div class="canvasCard">
+        <div class="canvasTitle">
+          <b>Marco del CDM</b>
+          <span>CDM fijo en el centro</span>
+        </div>
+        <canvas id="cCOM"></canvas>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+  // --- Helpers ---
+  const $ = (id) => document.getElementById(id);
+  const deg2rad = (d) => d * Math.PI / 180;
+
+  function vec(x,y){ return {x,y}; }
+  function add(a,b){ return {x:a.x+b.x, y:a.y+b.y}; }
+  function sub(a,b){ return {x:a.x-b.x, y:a.y-b.y}; }
+  function mul(a,s){ return {x:a.x*s, y:a.y*s}; }
+  function dot(a,b){ return a.x*b.x + a.y*b.y; }
+  function norm(a){ return Math.hypot(a.x,a.y); }
+
+  // Draw a spring between p and q (screen coords)
+  function drawSpring(ctx, p, q, coils=14, amp=8){
+    const dx = q.x - p.x, dy = q.y - p.y;
+    const L = Math.hypot(dx,dy);
+    if(L < 1e-6){
+      ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(q.x,q.y); ctx.stroke();
+      return;
+    }
+    const ux = dx/L, uy = dy/L;
+    const nx = -uy, ny = ux;
+
+    const lead = Math.min(18, L*0.12);
+    const body = Math.max(0, L - 2*lead);
+
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(p.x + ux*lead, p.y + uy*lead);
+
+    for(let i=0;i<=coils;i++){
+      const t = (i/coils) * body;
+      const phase = i * Math.PI;
+      const off = Math.sin(phase) * amp;
+      const x = p.x + ux*(lead + t) + nx*off;
+      const y = p.y + uy*(lead + t) + ny*off;
+      ctx.lineTo(x,y);
+    }
+
+    ctx.lineTo(q.x - ux*lead, q.y - uy*lead);
+    ctx.lineTo(q.x, q.y);
+    ctx.stroke();
+  }
+
+  function drawAxes(ctx, w, h){
+    ctx.save();
+    ctx.strokeStyle = "rgba(180,200,255,0.12)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(w/2, 0); ctx.lineTo(w/2, h);
+    ctx.moveTo(0, h/2); ctx.lineTo(w, h/2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawTrace(ctx, pts, color){
+    if(pts.length < 2) return;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x, pts[i].y);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawDisk(ctx, p, radius, fill, stroke="rgba(255,255,255,0.3)"){
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, radius, 0, 2*Math.PI);
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+    // highlight suave
+    ctx.beginPath();
+    ctx.arc(p.x - radius*0.25, p.y - radius*0.25, radius*0.35, 0, 2*Math.PI);
+    ctx.fillStyle = "rgba(255,255,255,0.10)";
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // --- Canvas setup (NO resize cada frame) ---
+  const cLab = $("cLab");
+  const cCOM = $("cCOM");
+  const ctxLab = cLab.getContext("2d");
+  const ctxCOM = cCOM.getContext("2d");
+
+  function resizeCanvas(canvas){
+    const rect = canvas.getBoundingClientRect();
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    canvas.width = Math.floor(rect.width * dpr);
+    canvas.height = Math.floor(rect.height * dpr);
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr,0,0,dpr,0,0); // dibujar en px CSS
+    return {w: rect.width, h: rect.height};
+  }
+
+  let labSize = {w:0, h:0};
+  let comSize = {w:0, h:0};
+
+  function initCanvases(){
+    labSize = resizeCanvas(cLab);
+    comSize = resizeCanvas(cCOM);
+  }
+
+  function worldToScreen(world, centerWorld, scale, w, h){
+    return {
+      x: (w/2) + (world.x - centerWorld.x) * scale,
+      y: (h/2) - (world.y - centerWorld.y) * scale
+    };
+  }
+
+  // --- Simulation state ---
+  let running = false;
+  let t = 0;
+
+  // Parameters
+  let m1,m2,M,mu,k,L0,dt,speed;
+
+  // COM motion
+  let R0, V;
+
+  // Relative motion (r and vrel)
+  let r, vrel;
+
+  // Traces
+  const traceLab = []; // CDM in lab frame
+  const traceCOM = []; // mass2 in COM frame
+  const TRACE_MAX = 800;
+
+  function readInputs(){
+    m1 = parseFloat($("m1").value);
+    m2 = parseFloat($("m2").value);
+    k  = parseFloat($("k").value);
+    L0 = parseFloat($("L0").value);
+    dt = Math.max(1e-4, parseFloat($("dt").value));
+    speed = Math.max(0.1, parseFloat($("speed").value));
+
+    M = m1 + m2;
+    mu = (m1*m2)/M;
+
+    R0 = vec(parseFloat($("R0x").value), parseFloat($("R0y").value));
+
+    const Vmag = parseFloat($("Vmag").value);
+    const Vang = deg2rad(parseFloat($("Vang").value));
+    V = vec(Vmag*Math.cos(Vang), Vmag*Math.sin(Vang));
+
+    const rmag = parseFloat($("rmag").value);
+    const rang = deg2rad(parseFloat($("rang").value));
+    r = vec(rmag*Math.cos(rang), rmag*Math.sin(rang));
+
+    const vrelmag = parseFloat($("vrelmag").value);
+    const vrelang = deg2rad(parseFloat($("vrelang").value));
+    vrel = vec(vrelmag*Math.cos(vrelang), vrelmag*Math.sin(vrelang));
+  }
+
+  function reset(){
+    running = false;
+    $("toggle").textContent = "▶️ Start";
+    t = 0;
+    acc = 0;          // IMPORTANTÍSIMO: limpiar acumulador
+    last = null;      // para que no haya salto al reanudar
+    readInputs();
+    traceLab.length = 0;
+    traceCOM.length = 0;
+    render();         // pinta una vez ya estable
+  }
+
+  // Relative acceleration a_rel(r) = -(k/mu)(|r|-L0) r_hat
+  function aRel(rr){
+    const d = norm(rr);
+    if(d < 1e-10) return vec(0,0);
+    const rhatx = rr.x/d, rhaty = rr.y/d;
+    const factor = -(k/mu) * (d - L0);
+    return vec(factor*rhatx, factor*rhaty);
+  }
+
+  // One step velocity-Verlet for relative motion
+  function step(){
+    const a0 = aRel(r);
+    const rNext = add( add(r, mul(vrel, dt)), mul(a0, 0.5*dt*dt) );
+    const a1 = aRel(rNext);
+    const vNext = add( vrel, mul(add(a0,a1), 0.5*dt) );
+
+    r = rNext;
+    vrel = vNext;
+    t += dt;
+  }
+
+  function render(){
+    // Compute positions
+    const R = add(R0, mul(V, t)); // CDM
+    const r1 = sub(R, mul(r, m2/M));
+    const r2 = add(R, mul(r, m1/M));
+
+    // Choose scales
+    const rLen = norm(r);
+    const spanLab = Math.max(3.0, 2.2*rLen + 1.5);
+    const scaleLab = Math.min(labSize.w, labSize.h) * 0.40 / spanLab;
+    const scaleCOM = Math.min(comSize.w, comSize.h) * 0.40 / Math.max(2.5, 2.2*rLen);
+
+    // --- LAB ---
+    ctxLab.clearRect(0,0,labSize.w, labSize.h);
+    ctxLab.fillStyle = "#070b12";
+    ctxLab.fillRect(0,0,labSize.w, labSize.h);
+    drawAxes(ctxLab, labSize.w, labSize.h);
+
+    const centerLabWorld = vec(0,0);
+    const sR  = worldToScreen(R,  centerLabWorld, scaleLab, labSize.w, labSize.h);
+    const s1  = worldToScreen(r1, centerLabWorld, scaleLab, labSize.w, labSize.h);
+    const s2  = worldToScreen(r2, centerLabWorld, scaleLab, labSize.w, labSize.h);
+
+    traceLab.push(sR);
+    if(traceLab.length > TRACE_MAX) traceLab.shift();
+    drawTrace(ctxLab, traceLab, "rgba(255,255,255,0.30)");
+
+    ctxLab.save();
+    ctxLab.strokeStyle = "rgba(220,235,255,0.55)";
+    ctxLab.lineWidth = 2;
+    drawSpring(ctxLab, s1, s2, 16, 7);
+    ctxLab.restore();
+
+    const rad1 = 10 + 5*Math.sqrt(m1);
+    const rad2 = 10 + 5*Math.sqrt(m2);
+    drawDisk(ctxLab, s1, rad1, "rgba(70,150,255,0.95)");
+    drawDisk(ctxLab, s2, rad2, "rgba(255,170,70,0.95)");
+    drawDisk(ctxLab, sR, 5, "rgba(255,255,255,0.95)", "rgba(255,255,255,0.6)");
+
+    // --- COM FRAME ---
+    ctxCOM.clearRect(0,0,comSize.w, comSize.h);
+    ctxCOM.fillStyle = "#070b12";
+    ctxCOM.fillRect(0,0,comSize.w, comSize.h);
+    drawAxes(ctxCOM, comSize.w, comSize.h);
+
+    const r1c = sub(r1, R);
+    const r2c = sub(r2, R);
+
+    const centerCOMWorld = vec(0,0);
+    const s1c = worldToScreen(r1c, centerCOMWorld, scaleCOM, comSize.w, comSize.h);
+    const s2c = worldToScreen(r2c, centerCOMWorld, scaleCOM, comSize.w, comSize.h);
+    const s0c = worldToScreen(vec(0,0), centerCOMWorld, scaleCOM, comSize.w, comSize.h);
+
+    traceCOM.push(s2c);
+    if(traceCOM.length > TRACE_MAX) traceCOM.shift();
+    drawTrace(ctxCOM, traceCOM, "rgba(255,170,70,0.30)");
+
+    ctxCOM.save();
+    ctxCOM.strokeStyle = "rgba(220,235,255,0.55)";
+    ctxCOM.lineWidth = 2;
+    drawSpring(ctxCOM, s1c, s2c, 16, 7);
+    ctxCOM.restore();
+
+    drawDisk(ctxCOM, s1c, rad1, "rgba(70,150,255,0.95)");
+    drawDisk(ctxCOM, s2c, rad2, "rgba(255,170,70,0.95)");
+    drawDisk(ctxCOM, s0c, 5, "rgba(255,255,255,0.95)", "rgba(255,255,255,0.6)");
+
+    // --- stats ---
+    const d = norm(r);
+    const x = d - L0;
+    const Trel = 0.5*mu*dot(vrel,vrel);
+    const Urel = 0.5*k*x*x;
+
+    $("stats").innerHTML =
+      `<b>t</b> = ${t.toFixed(3)} s<br>` +
+      `<b>CDM</b>: R = (${R.x.toFixed(2)}, ${R.y.toFixed(2)}) m, |V| = ${norm(V).toFixed(2)} m/s<br>` +
+      `<b>Relativo</b>: |r| = ${d.toFixed(3)} m, |v_rel| = ${norm(vrel).toFixed(3)} m/s<br>` +
+      `<b>E_rel</b> = ${(Trel+Urel).toFixed(4)} J  (T=${Trel.toFixed(4)}, U=${Urel.toFixed(4)})<br>` +
+      `<span style="color:rgba(160,180,220,0.9)">Consejo:</span> si subes <code>dt</code> mucho, la energía “respira”.`;
+  }
+
+  // --- Animation loop (con acumulador: suave) ---
+  let last = null;
+  let acc = 0;
+
+  function loop(ts){
+    if(last === null) last = ts;
+    const elapsed = (ts - last) / 1000; // s reales
+    last = ts;
+
+    if(running){
+      acc += elapsed * speed;
+
+      // Evitar acumulación brutal si el navegador se “duerme”
+      const maxAcc = 0.25; // s
+      if(acc > maxAcc) acc = maxAcc;
+
+      let steps = 0;
+      const maxStepsPerFrame = 700;
+
+      while(acc >= dt && steps < maxStepsPerFrame){
+        step();
+        acc -= dt;
+        steps++;
+      }
+    }
+
+    render();
+    requestAnimationFrame(loop);
+  }
+
+  // --- UI hooks ---
+  $("toggle").addEventListener("click", () => {
+    running = !running;
+    $("toggle").textContent = running ? "⏸ Pause" : "▶️ Start";
+  });
+
+  $("reset").addEventListener("click", () => reset());
+
+  $("kick").addEventListener("click", () => {
+    $("m1").value = "1.0";
+    $("m2").value = "2.0";
+    $("k").value  = "10.0";
+    $("L0").value = "1.2";
+    $("dt").value = "0.004";
+    $("speed").value = "1.0";
+    $("R0x").value = "-3.0";
+    $("R0y").value = "-1.0";
+    $("Vmag").value = "0.9";
+    $("Vang").value = "35";
+    $("rmag").value = "1.8";
+    $("rang").value = "110";
+    $("vrelmag").value = "1.2";
+    $("vrelang").value = "20";
+    reset();
+    running = true;
+    $("toggle").textContent = "⏸ Pause";
+  });
+
+  window.addEventListener("resize", () => {
+    initCanvases();
+    render();
+  });
+
+  // Init
+  initCanvases();
+  reset();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
