@@ -43,7 +43,7 @@
 <header>
   <h1>Dos masas unidas por un muelle — Vista laboratorio y vista del CDM</h1>
   <p>Plano sin rozamiento, muelle ideal (Hooke) con longitud natural <code>L0</code>.
-     CDM: movimiento uniforme. Relativo: oscilación. Integración: <b>Velocity-Verlet</b>.</p>
+     Integración: <b>Velocity-Verlet</b>. Escalas: <b>fijas</b> en laboratorio y en CDM (cámara sin zoom variable).</p>
 </header>
 
 <div class="wrap">
@@ -133,11 +133,8 @@
       </div>
 
       <div class="small">
-        <b>Notas rápidas:</b><br>
-        • CDM: <code>R(t)=R0+V·t</code> (momento lineal conservado).<br>
-        • Relativo: <code>μ r¨ = -k (|r|-L0) r̂</code>, <code>μ=m1 m2/(m1+m2)</code>.<br>
         • Posiciones: <code>r1=R-(m2/M)r</code>, <code>r2=R+(m1/M)r</code>.<br>
-        • En la vista CDM usamos <b>escala fija</b> (cámara sin zoom variable) → animación fluida.
+        • Relativo: <code>μ r¨ = -k (|r|-L0) r̂</code>, <code>μ=m1 m2/(m1+m2)</code>.
       </div>
     </div>
 
@@ -279,13 +276,18 @@
   // Relative motion (r and vrel)
   let r, vrel;
 
-  // Traces stored in WORLD coords (meters), not pixels
-  const traceR_world = [];   // COM path in lab frame, points = {x,y} in meters
-  const traceR2c_world = []; // mass2 path in COM frame, points = {x,y} in meters
+  // Traces stored in WORLD coords (meters)
+  const traceR_world = [];     // COM path in lab frame
+  const traceR2c_world = [];   // mass2 path in COM frame
   const TRACE_MAX = 900;
 
-  // Fixed camera scale for COM view (computed once on reset)
+  // Fixed camera scales (computed on reset)
   let fixedScaleCOM = 1;
+  let fixedScaleLAB = 1;
+
+  // Fixed lab camera center (world coords). Keep it at origin for now.
+  const centerLabWorld = vec(0,0);
+  const centerCOMWorld = vec(0,0);
 
   function readInputs(){
     m1 = parseFloat($("m1").value);
@@ -313,7 +315,7 @@
     vrel = vec(vrelmag*Math.cos(vrelang), vrelmag*Math.sin(vrelang));
   }
 
-  // Relative acceleration a_rel(r) = -(k/mu)(|r|-L0) r_hat
+  // Relative acceleration: a_rel(r) = -(k/mu)(|r|-L0) r_hat
   function aRel(rr){
     const d = norm(rr);
     if(d < 1e-10) return vec(0,0);
@@ -322,7 +324,7 @@
     return vec(factor*rhatx, factor*rhaty);
   }
 
-  // One step velocity-Verlet for relative motion
+  // One step velocity-Verlet (relative dynamics)
   function step(){
     const a0 = aRel(r);
     const rNext = add( add(r, mul(vrel, dt)), mul(a0, 0.5*dt*dt) );
@@ -337,26 +339,6 @@
   // --- Animation loop (accumulator) ---
   let last = null;
   let acc = 0;
-
-  function reset(){
-    running = false;
-    $("toggle").textContent = "▶️ Start";
-    t = 0;
-    acc = 0;
-    last = null;
-
-    readInputs();
-
-    traceR_world.length = 0;
-    traceR2c_world.length = 0;
-
-    // Fixed scale for COM view (no zoom breathing)
-    const rLen0 = Math.max(1e-6, norm(r));
-    const spanCOM = Math.max(2.5, 2.2*rLen0); // meters of half-span-ish
-    fixedScaleCOM = Math.min(comSize.w, comSize.h) * 0.40 / spanCOM;
-
-    render();
-  }
 
   function drawTraceWorld(ctx, ptsWorld, centerWorld, scale, w, h, color){
     if(ptsWorld.length < 2) return;
@@ -374,6 +356,36 @@
     ctx.restore();
   }
 
+  function computeFixedScales(){
+    // Escala fija para CDM frame (basada en |r| inicial)
+    const rLen0 = Math.max(1e-6, norm(r));
+    const spanCOM = Math.max(2.5, 2.2*rLen0);
+    fixedScaleCOM = Math.min(comSize.w, comSize.h) * 0.40 / spanCOM;
+
+    // Escala fija para LAB frame: queremos que quepan R0 y las masas inicialmente.
+    // Aproximamos radio máximo inicial ~ |R0| + factor*|r|
+    const R0mag = norm(R0);
+    const spanFromR0 = 1.2*(R0mag + 0.8*rLen0) + 1.0; // margen
+    const spanLab = Math.max(3.0, spanFromR0, 2.2*rLen0 + 1.5);
+    fixedScaleLAB = Math.min(labSize.w, labSize.h) * 0.40 / spanLab;
+  }
+
+  function reset(){
+    running = false;
+    $("toggle").textContent = "▶️ Start";
+    t = 0;
+    acc = 0;
+    last = null;
+
+    readInputs();
+
+    traceR_world.length = 0;
+    traceR2c_world.length = 0;
+
+    computeFixedScales();
+    render();
+  }
+
   function render(){
     // Compute positions
     const R = add(R0, mul(V, t)); // CDM
@@ -384,28 +396,21 @@
     traceR_world.push({x:R.x, y:R.y});
     if(traceR_world.length > TRACE_MAX) traceR_world.shift();
 
-    const r2c = sub(r2, R); // COM frame position of mass2
+    const r2c = sub(r2, R);
     traceR2c_world.push({x:r2c.x, y:r2c.y});
     if(traceR2c_world.length > TRACE_MAX) traceR2c_world.shift();
 
-    // --- LAB view scale (can vary; it's fine here) ---
-    const rLen = norm(r);
-    const spanLab = Math.max(3.0, 2.2*rLen + 1.5);
-    const scaleLab = Math.min(labSize.w, labSize.h) * 0.40 / spanLab;
-
-    // --- LAB ---
+    // --- LAB (fixed scale) ---
     ctxLab.clearRect(0,0,labSize.w, labSize.h);
     ctxLab.fillStyle = "#070b12";
     ctxLab.fillRect(0,0,labSize.w, labSize.h);
     drawAxes(ctxLab, labSize.w, labSize.h);
 
-    const centerLabWorld = vec(0,0);
+    drawTraceWorld(ctxLab, traceR_world, centerLabWorld, fixedScaleLAB, labSize.w, labSize.h, "rgba(255,255,255,0.30)");
 
-    drawTraceWorld(ctxLab, traceR_world, centerLabWorld, scaleLab, labSize.w, labSize.h, "rgba(255,255,255,0.30)");
-
-    const sR  = worldToScreen(R,  centerLabWorld, scaleLab, labSize.w, labSize.h);
-    const s1  = worldToScreen(r1, centerLabWorld, scaleLab, labSize.w, labSize.h);
-    const s2  = worldToScreen(r2, centerLabWorld, scaleLab, labSize.w, labSize.h);
+    const sR  = worldToScreen(R,  centerLabWorld, fixedScaleLAB, labSize.w, labSize.h);
+    const s1  = worldToScreen(r1, centerLabWorld, fixedScaleLAB, labSize.w, labSize.h);
+    const s2  = worldToScreen(r2, centerLabWorld, fixedScaleLAB, labSize.w, labSize.h);
 
     ctxLab.save();
     ctxLab.strokeStyle = "rgba(220,235,255,0.55)";
@@ -419,13 +424,11 @@
     drawDisk(ctxLab, s2, rad2, "rgba(255,170,70,0.95)");
     drawDisk(ctxLab, sR, 5, "rgba(255,255,255,0.95)", "rgba(255,255,255,0.6)");
 
-    // --- COM frame (fixed scale!!) ---
+    // --- COM (fixed scale) ---
     ctxCOM.clearRect(0,0,comSize.w, comSize.h);
     ctxCOM.fillStyle = "#070b12";
     ctxCOM.fillRect(0,0,comSize.w, comSize.h);
     drawAxes(ctxCOM, comSize.w, comSize.h);
-
-    const centerCOMWorld = vec(0,0);
 
     drawTraceWorld(ctxCOM, traceR2c_world, centerCOMWorld, fixedScaleCOM, comSize.w, comSize.h, "rgba(255,170,70,0.30)");
 
@@ -457,7 +460,7 @@
       `<b>CDM</b>: R = (${R.x.toFixed(2)}, ${R.y.toFixed(2)}) m, |V| = ${norm(V).toFixed(2)} m/s<br>` +
       `<b>Relativo</b>: |r| = ${d.toFixed(3)} m, |v_rel| = ${norm(vrel).toFixed(3)} m/s<br>` +
       `<b>E_rel</b> = ${(Trel+Urel).toFixed(4)} J  (T=${Trel.toFixed(4)}, U=${Urel.toFixed(4)})<br>` +
-      `<span style="color:rgba(160,180,220,0.9)">CDM view:</span> escala fija = ${fixedScaleCOM.toFixed(2)} px/m`;
+      `<span style="color:rgba(160,180,220,0.9)">Escalas fijas:</span> LAB=${fixedScaleLAB.toFixed(2)} px/m, CDM=${fixedScaleCOM.toFixed(2)} px/m`;
   }
 
   function loop(ts){
@@ -514,10 +517,7 @@
 
   window.addEventListener("resize", () => {
     initCanvases();
-    // Recalcula escala fija para CDM en el nuevo tamaño
-    const rLen0 = Math.max(1e-6, norm(r));
-    const spanCOM = Math.max(2.5, 2.2*rLen0);
-    fixedScaleCOM = Math.min(comSize.w, comSize.h) * 0.40 / spanCOM;
+    computeFixedScales();
     render();
   });
 
